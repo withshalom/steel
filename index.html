@@ -1,96 +1,279 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>Steel Catcher</title>
   <style>
-    body { margin:0; background:#222; color:white; font-family:Arial; text-align:center; }
-    canvas { background:#111; display:block; margin:20px auto; border:3px solid #555; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: #111;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      overflow: hidden;
+      overscroll-behavior: none;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: none;
+    }
+    #game {
+      display: block;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #111;
+      touch-action: none;
+    }
+    /* Floating control pad: only the buttons capture touches, the gaps fall through to the canvas (swipe). */
+    #controls {
+      position: fixed;
+      left: 50%;
+      bottom: 0;
+      transform: translateX(-50%);
+      margin-bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+      display: flex;
+      gap: 26px;
+      z-index: 10;
+      pointer-events: none;
+    }
+    .dbtn {
+      width: 92px;
+      height: 92px;
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.12);
+      border: 2px solid rgba(255, 255, 255, 0.28);
+      color: rgba(255, 255, 255, 0.9);
+      font-size: 46px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: auto;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    .dbtn:active {
+      background: rgba(74, 163, 255, 0.4);
+      border-color: rgba(74, 163, 255, 0.7);
+    }
   </style>
 </head>
 <body>
-  <h1>Steel Catcher</h1>
-  <p>Move with ← →. Catch the falling steel. Miss 5 and you lose.</p>
-  <canvas id="game" width="500" height="600"></canvas>
+  <canvas id="game"></canvas>
+  <div id="controls">
+    <div class="dbtn" id="leftBtn">&#8592;</div>
+    <div class="dbtn" id="rightBtn">&#8594;</div>
+  </div>
 
   <script>
-    const canvas = document.getElementById("game");
-    const ctx = canvas.getContext("2d");
+    /* ES5 only (Safari / iOS WebView friendly): no arrow fns, template literals, let/const, or optional chaining. */
+    (function () {
+      var canvas = document.getElementById("game");
+      var ctx = canvas.getContext("2d");
 
-    let player = { x: 220, y: 550, w: 70, h: 20, speed: 7 };
-    let steel = { x: Math.random() * 460, y: 0, w: 40, h: 40, speed: 4 };
-    let score = 0;
-    let misses = 0;
-    let keys = {};
-    let gameOver = false;
+      var W = 0;            /* logical width in CSS pixels */
+      var H = 0;            /* logical height in CSS pixels */
+      var dpr = 1;
+      var CONTROL_ZONE = 165; /* reserved space at the bottom for the d-pad */
 
-    document.addEventListener("keydown", e => keys[e.key] = true);
-    document.addEventListener("keyup", e => keys[e.key] = false);
+      var BASE_STEEL_SPEED = 4;
 
-    function resetSteel() {
-      steel.x = Math.random() * (canvas.width - steel.w);
-      steel.y = 0;
-      steel.speed += 0.25;
-    }
+      var player = { x: 0, y: 0, w: 70, h: 18, speed: 7 };
+      var steel = { x: 0, y: 0, w: 40, h: 40, speed: BASE_STEEL_SPEED };
+      var score = 0;
+      var misses = 0;
+      var gameOver = false;
 
-    function draw() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      /* input state */
+      var keys = {};
+      var moveLeft = false;
+      var moveRight = false;
+      var dragging = false;
+      var lastTouchX = 0;
 
-      ctx.fillStyle = "white";
-      ctx.font = "20px Arial";
-      ctx.fillText("Score: " + score, 20, 30);
-      ctx.fillText("Misses: " + misses + "/5", 380, 30);
-
-      ctx.fillStyle = "#4aa3ff";
-      ctx.fillRect(player.x, player.y, player.w, player.h);
-
-      ctx.fillStyle = "#aaa";
-      ctx.fillRect(steel.x, steel.y, steel.w, steel.h);
-
-      if (gameOver) {
-        ctx.fillStyle = "red";
-        ctx.font = "45px Arial";
-        ctx.fillText("GAME OVER", 120, 300);
-        ctx.font = "22px Arial";
-        ctx.fillText("Refresh to play again", 160, 340);
+      function clampPlayer() {
+        if (player.x < 0) player.x = 0;
+        if (player.x > W - player.w) player.x = W - player.w;
       }
-    }
 
-    function update() {
-      if (gameOver) return;
+      function resize() {
+        W = window.innerWidth;
+        H = window.innerHeight;
+        dpr = window.devicePixelRatio || 1;
 
-      if (keys["ArrowLeft"] && player.x > 0) player.x -= player.speed;
-      if (keys["ArrowRight"] && player.x < canvas.width - player.w) player.x += player.speed;
+        canvas.width = Math.floor(W * dpr);
+        canvas.height = Math.floor(H * dpr);
+        canvas.style.width = W + "px";
+        canvas.style.height = H + "px";
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      steel.y += steel.speed;
+        /* size pieces relative to the screen so they fit any phone */
+        player.w = Math.max(60, Math.min(110, W * 0.20));
+        player.h = 18;
+        steel.w = Math.max(34, Math.min(60, W * 0.11));
+        steel.h = steel.w;
 
-      let caught =
-        steel.x < player.x + player.w &&
-        steel.x + steel.w > player.x &&
-        steel.y < player.y + player.h &&
-        steel.y + steel.h > player.y;
+        /* keep the paddle above the floating controls */
+        player.y = H - CONTROL_ZONE;
+        if (player.y < H * 0.6) player.y = H * 0.6;
 
-      if (caught) {
-        score++;
+        if (player.x <= 0) player.x = (W - player.w) / 2;
+        clampPlayer();
+      }
+
+      function resetSteel() {
+        steel.x = Math.random() * (W - steel.w);
+        steel.y = -steel.h;
+        steel.speed += 0.25;
+      }
+
+      function restart() {
+        score = 0;
+        misses = 0;
+        gameOver = false;
+        steel.speed = BASE_STEEL_SPEED;
+        player.x = (W - player.w) / 2;
         resetSteel();
       }
 
-      if (steel.y > canvas.height) {
-        misses++;
-        resetSteel();
+      function update() {
+        if (gameOver) return;
+
+        var left = moveLeft || keys["ArrowLeft"] || keys["Left"];
+        var right = moveRight || keys["ArrowRight"] || keys["Right"];
+        if (left) player.x -= player.speed;
+        if (right) player.x += player.speed;
+        clampPlayer();
+
+        steel.y += steel.speed;
+
+        var caught =
+          steel.x < player.x + player.w &&
+          steel.x + steel.w > player.x &&
+          steel.y < player.y + player.h &&
+          steel.y + steel.h > player.y;
+
+        if (caught) {
+          score++;
+          resetSteel();
+        }
+
+        if (steel.y > H) {
+          misses++;
+          resetSteel();
+        }
+
+        if (misses >= 5) {
+          gameOver = true;
+        }
       }
 
-      if (misses >= 5) {
-        gameOver = true;
+      function draw() {
+        ctx.clearRect(0, 0, W, H);
+
+        /* HUD */
+        ctx.fillStyle = "#fff";
+        ctx.font = "20px Arial";
+        ctx.textAlign = "left";
+        ctx.fillText("Score: " + score, 18, 36);
+        ctx.textAlign = "right";
+        ctx.fillText("Misses: " + misses + "/5", W - 18, 36);
+
+        /* control hint */
+        ctx.fillStyle = "rgba(255,255,255,0.45)";
+        ctx.font = "13px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText("Swipe left / right, or use the arrows below", W / 2, 58);
+        ctx.textAlign = "left";
+
+        /* player */
+        ctx.fillStyle = "#4aa3ff";
+        ctx.fillRect(player.x, player.y, player.w, player.h);
+
+        /* falling steel */
+        ctx.fillStyle = "#aaa";
+        ctx.fillRect(steel.x, steel.y, steel.w, steel.h);
+
+        if (gameOver) {
+          ctx.fillStyle = "rgba(0,0,0,0.62)";
+          ctx.fillRect(0, 0, W, H);
+
+          ctx.textAlign = "center";
+          ctx.fillStyle = "#ff5555";
+          ctx.font = "bold 46px Arial";
+          ctx.fillText("GAME OVER", W / 2, H / 2 - 8);
+
+          ctx.fillStyle = "#fff";
+          ctx.font = "22px Arial";
+          ctx.fillText("Score: " + score, W / 2, H / 2 + 30);
+          ctx.font = "18px Arial";
+          ctx.fillText("Tap to play again", W / 2, H / 2 + 64);
+          ctx.textAlign = "left";
+        }
       }
-    }
 
-    function loop() {
-      update();
-      draw();
-      requestAnimationFrame(loop);
-    }
+      function loop() {
+        update();
+        draw();
+        requestAnimationFrame(loop);
+      }
 
-    loop();
+      /* ---- d-pad buttons (hold to move, like the arrow keys) ---- */
+      function bindHold(el, setter) {
+        el.addEventListener("touchstart", function (e) { e.preventDefault(); setter(true); }, { passive: false });
+        el.addEventListener("touchend", function (e) { e.preventDefault(); setter(false); }, { passive: false });
+        el.addEventListener("touchcancel", function () { setter(false); }, { passive: false });
+        el.addEventListener("mousedown", function (e) { e.preventDefault(); setter(true); });
+        el.addEventListener("mouseup", function () { setter(false); });
+        el.addEventListener("mouseleave", function () { setter(false); });
+      }
+      bindHold(document.getElementById("leftBtn"), function (v) { moveLeft = v; });
+      bindHold(document.getElementById("rightBtn"), function (v) { moveRight = v; });
+
+      /* ---- swipe / drag anywhere on the play area ---- */
+      canvas.addEventListener("touchstart", function (e) {
+        e.preventDefault();
+        if (gameOver) { restart(); return; }
+        dragging = true;
+        lastTouchX = e.touches[0].clientX;
+      }, { passive: false });
+
+      canvas.addEventListener("touchmove", function (e) {
+        e.preventDefault();
+        if (!dragging || gameOver) return;
+        var x = e.touches[0].clientX;
+        player.x += x - lastTouchX;
+        lastTouchX = x;
+        clampPlayer();
+      }, { passive: false });
+
+      canvas.addEventListener("touchend", function (e) { e.preventDefault(); dragging = false; }, { passive: false });
+      canvas.addEventListener("touchcancel", function () { dragging = false; }, { passive: false });
+
+      /* mouse tap to restart (desktop testing) */
+      canvas.addEventListener("mousedown", function () { if (gameOver) restart(); });
+
+      /* keyboard (desktop) */
+      document.addEventListener("keydown", function (e) {
+        keys[e.key] = true;
+        if (gameOver && (e.key === " " || e.key === "Enter")) restart();
+      });
+      document.addEventListener("keyup", function (e) { keys[e.key] = false; });
+
+      /* block page scroll / rubber-banding on iOS */
+      document.addEventListener("touchmove", function (e) { e.preventDefault(); }, { passive: false });
+
+      window.addEventListener("resize", resize);
+      window.addEventListener("orientationchange", function () { setTimeout(resize, 120); });
+
+      resize();
+      restart();
+      loop();
+    })();
   </script>
 </body>
 </html>
