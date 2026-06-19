@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Steel Catcher</title>
+  <style>
+    body { margin:0; background:#222; color:white; font-family:Arial; text-align:center; }
+    canvas { background:#111; display:block; margin:20px auto; border:3px solid #555; }
+  </style>
+</head>
+<body>
+  <h1>Steel Catcher</h1>
+  <p>Move with ← →. Catch the falling steel. Miss 5 and you lose.</p>
+  <canvas id="game" width="500" height="600"></canvas>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+
+    let player = { x: 220, y: 550, w: 70, h: 20, speed: 7 };
+    let steel = { x: Math.random() * 460, y: 0, w: 40, h: 40, speed: 4 };
+    let score = 0;
+    let misses = 0;
+    let keys = {};
+    let gameOver = false;
+
+    document.addEventListener("keydown", e => keys[e.key] = true);
+    document.addEventListener("keyup", e => keys[e.key] = false);
+
+    function resetSteel() {
+      steel.x = Math.random() * (canvas.width - steel.w);
+      steel.y = 0;
+      steel.speed += 0.25;
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = "white";
+      ctx.font = "20px Arial";
+      ctx.fillText("Score: " + score, 20, 30);
+      ctx.fillText("Misses: " + misses + "/5", 380, 30);
+
+      ctx.fillStyle = "#4aa3ff";
+      ctx.fillRect(player.x, player.y, player.w, player.h);
+
+      ctx.fillStyle = "#aaa";
+      ctx.fillRect(steel.x, steel.y, steel.w, steel.h);
+
+      if (gameOver) {
+        ctx.fillStyle = "red";
+        ctx.font = "45px Arial";
+        ctx.fillText("GAME OVER", 120, 300);
+        ctx.font = "22px Arial";
+        ctx.fillText("Refresh to play again", 160, 340);
+      }
+    }
+
+    function update() {
+      if (gameOver) return;
+
+      if (keys["ArrowLeft"] && player.x > 0) player.x -= player.speed;
+      if (keys["ArrowRight"] && player.x < canvas.width - player.w) player.x += player.speed;
+
+      steel.y += steel.speed;
+
+      let caught =
+        steel.x < player.x + player.w &&
+        steel.x + steel.w > player.x &&
+        steel.y < player.y + player.h &&
+        steel.y + steel.h > player.y;
+
+      if (caught) {
+        score++;
+        resetSteel();
+      }
+
+      if (steel.y > canvas.height) {
+        misses++;
+        resetSteel();
+      }
+
+      if (misses >= 5) {
+        gameOver = true;
+      }
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    loop();
+  </script>
+</body>
+</html>
